@@ -79,49 +79,147 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         }
 
         [Benchmark(OperationsPerInvoke = InnerLoopCount)]
-        public void ParseLiveAspNet()
+        public void ParsePlaintextCopies()
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_liveaspnentRequest);
-                ParseData();
+                InsertData(_plaintextRequest);
+                ParseDataCopies();
             }
         }
 
         [Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
-        public void ParsePipelinedLiveAspNet()
+        public void ParsePipelinedPlaintextCopies()
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_liveaspnentPipelinedRequests);
-                ParseData();
+                InsertData(_plaintextPipelinedRequests);
+                ParseDataCopies();
             }
         }
 
         [Benchmark(OperationsPerInvoke = InnerLoopCount)]
-        public void ParseUnicode()
+        public void ParsePlaintextSingleOrMany()
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_unicodeRequest);
-                ParseData();
+                InsertData(_plaintextRequest);
+                ParseDataSingleOrMany();
             }
         }
 
         [Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
-        public void ParseUnicodePipelined()
+        public void ParsePipelinedPlaintextSingleOrMany()
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_unicodePipelinedRequests);
-                ParseData();
+                InsertData(_plaintextPipelinedRequests);
+                ParseDataSingleOrMany();
             }
         }
+
+        [Benchmark(OperationsPerInvoke = InnerLoopCount)]
+        public void ParsePlaintextEnumerateMemory()
+        {
+            for (var i = 0; i < InnerLoopCount; i++)
+            {
+                InsertData(_plaintextRequest);
+                ParseDataEnumerateMemory();
+            }
+        }
+
+        [Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
+        public void ParsePipelinedPlaintextEnumerateMemory()
+        {
+            for (var i = 0; i < InnerLoopCount; i++)
+            {
+                InsertData(_plaintextPipelinedRequests);
+                ParseDataEnumerateMemory();
+            }
+        }
+
+        //[Benchmark(OperationsPerInvoke = InnerLoopCount)]
+        //public void ParseLiveAspNet()
+        //{
+        //    for (var i = 0; i < InnerLoopCount; i++)
+        //    {
+        //        InsertData(_liveaspnentRequest);
+        //        ParseData();
+        //    }
+        //}
+
+        //[Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
+        //public void ParsePipelinedLiveAspNet()
+        //{
+        //    for (var i = 0; i < InnerLoopCount; i++)
+        //    {
+        //        InsertData(_liveaspnentPipelinedRequests);
+        //        ParseData();
+        //    }
+        //}
+
+        //[Benchmark(OperationsPerInvoke = InnerLoopCount)]
+        //public void ParseUnicode()
+        //{
+        //    for (var i = 0; i < InnerLoopCount; i++)
+        //    {
+        //        InsertData(_unicodeRequest);
+        //        ParseData();
+        //    }
+        //}
+
+        //[Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
+        //public void ParseUnicodePipelined()
+        //{
+        //    for (var i = 0; i < InnerLoopCount; i++)
+        //    {
+        //        InsertData(_unicodePipelinedRequests);
+        //        ParseData();
+        //    }
+        //}
 
         private void InsertData(byte[] bytes)
         {
             // There should not be any backpressure and task completes immediately
             Pipe.Writer.WriteAsync(bytes).GetAwaiter().GetResult();
+        }
+
+        private void ParseDataSingleOrMany()
+        {
+            do
+            {
+                var awaitable = Pipe.Reader.ReadAsync();
+                if (!awaitable.IsCompleted)
+                {
+                    // No more data
+                    return;
+                }
+
+                var result = awaitable.GetAwaiter().GetResult();
+                var readableBuffer = result.Buffer;
+
+                Frame.Reset();
+
+                ReadCursor consumed;
+                ReadCursor examined;
+                if (!Frame.TakeStartLine(readableBuffer, out consumed, out examined))
+                {
+                    ThrowInvalidStartLine();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+
+                result = Pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+                readableBuffer = result.Buffer;
+
+                Frame.InitializeHeaders();
+
+                if (!Frame.TakeMessageHeadersSingleOrMany(readableBuffer, (FrameRequestHeaders)Frame.RequestHeaders, out consumed, out examined))
+                {
+                    ThrowInvalidMessageHeaders();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+            }
+            while (true);
         }
 
         private void ParseData()
@@ -160,6 +258,82 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
                 Pipe.Reader.Advance(consumed, examined);
             }
             while(true);
+        }
+
+        private void ParseDataEnumerateMemory()
+        {
+            do
+            {
+                var awaitable = Pipe.Reader.ReadAsync();
+                if (!awaitable.IsCompleted)
+                {
+                    // No more data
+                    return;
+                }
+
+                var result = awaitable.GetAwaiter().GetResult();
+                var readableBuffer = result.Buffer;
+
+                Frame.Reset();
+
+                ReadCursor consumed;
+                ReadCursor examined;
+                if (!Frame.TakeStartLine(readableBuffer, out consumed, out examined))
+                {
+                    ThrowInvalidStartLine();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+
+                result = Pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+                readableBuffer = result.Buffer;
+
+                Frame.InitializeHeaders();
+
+                if (!Frame.TakeMessageHeadersEnumerateMemory(readableBuffer, (FrameRequestHeaders)Frame.RequestHeaders, out consumed, out examined))
+                {
+                    ThrowInvalidMessageHeaders();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+            }
+            while (true);
+        }
+
+        private void ParseDataCopies()
+        {
+            do
+            {
+                var awaitable = Pipe.Reader.ReadAsync();
+                if (!awaitable.IsCompleted)
+                {
+                    // No more data
+                    return;
+                }
+
+                var result = awaitable.GetAwaiter().GetResult();
+                var readableBuffer = result.Buffer;
+
+                Frame.Reset();
+
+                ReadCursor consumed;
+                ReadCursor examined;
+                if (!Frame.TakeStartLine(readableBuffer, out consumed, out examined))
+                {
+                    ThrowInvalidStartLine();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+
+                result = Pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+                readableBuffer = result.Buffer;
+
+                Frame.InitializeHeaders();
+
+                if (!Frame.TakeMessageHeadersWithCopies(readableBuffer, (FrameRequestHeaders)Frame.RequestHeaders, out consumed, out examined))
+                {
+                    ThrowInvalidMessageHeaders();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+            }
+            while (true);
         }
 
         private void ThrowInvalidStartLine()
