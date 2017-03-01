@@ -138,6 +138,46 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
             }
         }
 
+        [Benchmark(OperationsPerInvoke = InnerLoopCount)]
+        public void ParsePlaintextCopiesPointer()
+        {
+            for (var i = 0; i < InnerLoopCount; i++)
+            {
+                InsertData(_plaintextRequest);
+                ParseDataCopiesPointer();
+            }
+        }
+
+        [Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
+        public void ParsePipelinedPlaintextCopiesPointer()
+        {
+            for (var i = 0; i < InnerLoopCount; i++)
+            {
+                InsertData(_plaintextPipelinedRequests);
+                ParseDataCopiesPointer();
+            }
+        }
+
+        [Benchmark(OperationsPerInvoke = InnerLoopCount)]
+        public void ParsePlaintextCopiesTryIndicesOf()
+        {
+            for (var i = 0; i < InnerLoopCount; i++)
+            {
+                InsertData(_plaintextRequest);
+                ParseDataCopiesTryIndicesOf();
+            }
+        }
+
+        [Benchmark(OperationsPerInvoke = InnerLoopCount * Pipelining)]
+        public void ParsePipelinedPlaintextCopiesTryIndicesOf()
+        {
+            for (var i = 0; i < InnerLoopCount; i++)
+            {
+                InsertData(_plaintextPipelinedRequests);
+                ParseDataCopiesTryIndicesOf();
+            }
+        }
+
         //[Benchmark(OperationsPerInvoke = InnerLoopCount)]
         //public void ParseLiveAspNet()
         //{
@@ -182,6 +222,82 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         {
             // There should not be any backpressure and task completes immediately
             Pipe.Writer.WriteAsync(bytes).GetAwaiter().GetResult();
+        }
+
+        private void ParseDataCopiesTryIndicesOf()
+        {
+            do
+            {
+                var awaitable = Pipe.Reader.ReadAsync();
+                if (!awaitable.IsCompleted)
+                {
+                    // No more data
+                    return;
+                }
+
+                var result = awaitable.GetAwaiter().GetResult();
+                var readableBuffer = result.Buffer;
+
+                Frame.Reset();
+
+                ReadCursor consumed;
+                ReadCursor examined;
+                if (!Frame.TakeStartLine(readableBuffer, out consumed, out examined))
+                {
+                    ThrowInvalidStartLine();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+
+                result = Pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+                readableBuffer = result.Buffer;
+
+                Frame.InitializeHeaders();
+
+                if (!Frame.TakeMessageHeadersWithCopiesIndiciesOfAll(readableBuffer, (FrameRequestHeaders)Frame.RequestHeaders, out consumed, out examined))
+                {
+                    ThrowInvalidMessageHeaders();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+            }
+            while (true);
+        }
+
+        private void ParseDataCopiesPointer()
+        {
+            do
+            {
+                var awaitable = Pipe.Reader.ReadAsync();
+                if (!awaitable.IsCompleted)
+                {
+                    // No more data
+                    return;
+                }
+
+                var result = awaitable.GetAwaiter().GetResult();
+                var readableBuffer = result.Buffer;
+
+                Frame.Reset();
+
+                ReadCursor consumed;
+                ReadCursor examined;
+                if (!Frame.TakeStartLine(readableBuffer, out consumed, out examined))
+                {
+                    ThrowInvalidStartLine();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+
+                result = Pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+                readableBuffer = result.Buffer;
+
+                Frame.InitializeHeaders();
+
+                if (!Frame.TakeMessageHeadersWithCopiesPointer(readableBuffer, (FrameRequestHeaders)Frame.RequestHeaders, out consumed, out examined))
+                {
+                    ThrowInvalidMessageHeaders();
+                }
+                Pipe.Reader.Advance(consumed, examined);
+            }
+            while (true);
         }
 
         private void ParseDataSingleOrMany()
