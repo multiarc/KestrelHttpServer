@@ -427,7 +427,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                         RejectRequest(RequestRejectionReason.HeaderLineMustNotStartWithWhitespace);
                     }
 
-                    var endOfLineIndex = IndexOf(data + index, index, headersSpan.Length, ByteLF);
+                    var endOfLineIndex = IndexOf(data, index, headersSpan.Length, ByteLF);
 
                     // Reset the reader since we're not at the end of headers
                     if (endOfLineIndex == -1)
@@ -487,11 +487,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         private unsafe int IndexOf(byte* data, int index, int length, byte value)
         {
-            for (int i = 0; i < length; i++)
+            for (int i = index; i < length; i++)
             {
                 if (data[i] == value)
                 {
-                    return index + i;
+                    return i;
                 }
             }
             return -1;
