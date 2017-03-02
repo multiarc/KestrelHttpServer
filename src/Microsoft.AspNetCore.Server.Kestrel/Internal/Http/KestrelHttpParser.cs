@@ -392,92 +392,109 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
         }
 
-        private bool TakeMessageHeadersSingleSpan<T>(T handler, Span<byte> headersSpan, out int consumedBytes) where T : IHttpHeadersHandler
+        private unsafe bool TakeMessageHeadersSingleSpan<T>(T handler, Span<byte> headersSpan, out int consumedBytes) where T : IHttpHeadersHandler
         {
             consumedBytes = 0;
-            var endLength = headersSpan.Length;
 
-            while (true)
+            var remaining = headersSpan.Length;
+            var index = 0;
+            fixed (byte* data = &headersSpan.DangerousGetPinnableReference())
             {
-                if (headersSpan.Length < 2)
+                while (true)
                 {
-                    return false;
-                }
-
-                var ch1 = headersSpan[0];
-                var ch2 = headersSpan[1];
-
-                if (ch1 == ByteCR)
-                {
-                    // Check for final CRLF.
-                    if (ch2 == ByteLF)
+                    if (remaining < 2)
                     {
-                        consumedBytes += 2;
-                        return true;
+                        return false;
                     }
 
-                    // Headers don't end in CRLF line.
-                    RejectRequest(RequestRejectionReason.HeadersCorruptedInvalidHeaderSequence);
+                    var ch1 = data[index];
+                    var ch2 = data[index + 1];
+
+                    if (ch1 == ByteCR)
+                    {
+                        // Check for final CRLF.
+                        if (ch2 == ByteLF)
+                        {
+                            consumedBytes += 2;
+                            return true;
+                        }
+
+                        // Headers don't end in CRLF line.
+                        RejectRequest(RequestRejectionReason.HeadersCorruptedInvalidHeaderSequence);
+                    }
+                    else if (ch1 == ByteSpace || ch1 == ByteTab)
+                    {
+                        RejectRequest(RequestRejectionReason.HeaderLineMustNotStartWithWhitespace);
+                    }
+
+                    var endOfLineIndex = IndexOf(data + index, index, headersSpan.Length, ByteLF);
+
+                    // Reset the reader since we're not at the end of headers
+                    if (endOfLineIndex == -1)
+                    {
+                        return false;
+                    }
+
+                    var span = new Span<byte>(data + index, (endOfLineIndex - index + 1));
+                    index += span.Length;
+
+                    if (!TakeSingleHeader(span, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
+                    {
+                        return false;
+                    }
+
+                    if ((endOfLineIndex + 1) >= headersSpan.Length)
+                    {
+                        return false;
+                    }
+
+                    // Before accepting the header line, we need to see at least one character
+                    // > so we can make sure there's no space or tab
+                    var next = data[index];
+
+                    if (next == ByteSpace || next == ByteTab)
+                    {
+                        // From https://tools.ietf.org/html/rfc7230#section-3.2.4:
+                        //
+                        // Historically, HTTP header field values could be extended over
+                        // multiple lines by preceding each extra line with at least one space
+                        // or horizontal tab (obs-fold).  This specification deprecates such
+                        // line folding except within the message/http media type
+                        // (Section 8.3.1).  A sender MUST NOT generate a message that includes
+                        // line folding (i.e., that has any field-value that contains a match to
+                        // the obs-fold rule) unless the message is intended for packaging
+                        // within the message/http media type.
+                        //
+                        // A server that receives an obs-fold in a request message that is not
+                        // within a message/http container MUST either reject the message by
+                        // sending a 400 (Bad Request), preferably with a representation
+                        // explaining that obsolete line folding is unacceptable, or replace
+                        // each received obs-fold with one or more SP octets prior to
+                        // interpreting the field value or forwarding the message downstream.
+                        RejectRequest(RequestRejectionReason.HeaderValueLineFoldingNotSupported);
+                    }
+
+                    var nameBuffer = span.Slice(nameStart, nameEnd - nameStart);
+                    var valueBuffer = span.Slice(valueStart, valueEnd - valueStart);
+
+                    handler.OnHeader(nameBuffer, valueBuffer);
+
+                    consumedBytes += span.Length;
+                    remaining -= span.Length;
                 }
-                else if (ch1 == ByteSpace || ch1 == ByteTab)
-                {
-                    RejectRequest(RequestRejectionReason.HeaderLineMustNotStartWithWhitespace);
-                }
-
-                var endOfLineIndex = headersSpan.IndexOfVectorized(ByteLF);
-
-                // Reset the reader since we're not at the end of headers
-                if (endOfLineIndex == -1)
-                {
-                    return false;
-                }
-
-                var span = headersSpan.Slice(0, endOfLineIndex + 1);
-                headersSpan = headersSpan.Slice(endOfLineIndex + 1);
-
-                if (!TakeSingleHeader(span, out var nameStart, out var nameEnd, out var valueStart, out var valueEnd))
-                {
-                    return false;
-                }
-
-                if ((endOfLineIndex + 1) >= endLength)
-                {
-                    return false;
-                }
-
-                // Before accepting the header line, we need to see at least one character
-                // > so we can make sure there's no space or tab
-                var next = headersSpan[0];
-
-                if (next == ByteSpace || next == ByteTab)
-                {
-                    // From https://tools.ietf.org/html/rfc7230#section-3.2.4:
-                    //
-                    // Historically, HTTP header field values could be extended over
-                    // multiple lines by preceding each extra line with at least one space
-                    // or horizontal tab (obs-fold).  This specification deprecates such
-                    // line folding except within the message/http media type
-                    // (Section 8.3.1).  A sender MUST NOT generate a message that includes
-                    // line folding (i.e., that has any field-value that contains a match to
-                    // the obs-fold rule) unless the message is intended for packaging
-                    // within the message/http media type.
-                    //
-                    // A server that receives an obs-fold in a request message that is not
-                    // within a message/http container MUST either reject the message by
-                    // sending a 400 (Bad Request), preferably with a representation
-                    // explaining that obsolete line folding is unacceptable, or replace
-                    // each received obs-fold with one or more SP octets prior to
-                    // interpreting the field value or forwarding the message downstream.
-                    RejectRequest(RequestRejectionReason.HeaderValueLineFoldingNotSupported);
-                }
-
-                var nameBuffer = span.Slice(nameStart, nameEnd - nameStart);
-                var valueBuffer = span.Slice(valueStart, valueEnd - valueStart);
-
-                handler.OnHeader(nameBuffer, valueBuffer);
-
-                consumedBytes += span.Length;
             }
+        }
+
+        private unsafe int IndexOf(byte* data, int index, int length, byte value)
+        {
+            for (int i = 0; i < length; i++)
+            {
+                if (data[i] == value)
+                {
+                    return index + i;
+                }
+            }
+            return -1;
         }
 
         private unsafe bool TakeSingleHeader(Span<byte> span, out int nameStart, out int nameEnd, out int valueStart, out int valueEnd)
