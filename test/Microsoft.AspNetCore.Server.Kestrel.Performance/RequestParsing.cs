@@ -9,6 +9,7 @@ using BenchmarkDotNet.Attributes;
 using Microsoft.AspNetCore.Server.Kestrel.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
+using Microsoft.AspNetCore.Server.Kestrel.Internal.Parsers;
 using Microsoft.AspNetCore.Testing;
 using MemoryPool = Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure.MemoryPool;
 using RequestLineStatus = Microsoft.AspNetCore.Server.Kestrel.Internal.Http.Frame.RequestLineStatus;
@@ -58,7 +59,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         private static readonly byte[] _unicodePipelinedRequests = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(unicodeRequest, Pipelining)));
         private static readonly byte[] _unicodeRequest = Encoding.ASCII.GetBytes(unicodeRequest);
 
-        [Params(typeof(KestrelHttpParser))]
+        [Params(typeof(KestrelHttpParser), typeof(SingleSpanHttpParser))]
         public Type ParserType { get; set; }
 
         [Benchmark(Baseline = true, OperationsPerInvoke = InnerLoopCount)]
