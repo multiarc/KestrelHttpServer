@@ -40,9 +40,17 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
             {
                 BenchmarkRunner.Run<PipeThroughput>();
             }
-            if (type.HasFlag(BenchmarkType.KnownStrings)) 
+            if (type.HasFlag(BenchmarkType.KnownStrings))
             {
                 BenchmarkRunner.Run<KnownStrings>();
+            }
+            if (type.HasFlag(BenchmarkType.RequestLineParsing))
+            {
+                BenchmarkRunner.Run<RequestLineParsing>();
+            }
+            if (type.HasFlag(BenchmarkType.RequestHeadersParsing))
+            {
+                BenchmarkRunner.Run<RequestHeadersParsing>();
             }
         }
     }
@@ -54,6 +62,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         Writing = 2,
         Throughput = 4,
         KnownStrings = 8,
+        RequestLineParsing =  16,
+        RequestHeadersParsing = 32,
         // add new ones in powers of two - e.g. 2,4,8,16...
 
         All = uint.MaxValue

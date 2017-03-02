@@ -6,12 +6,8 @@ using System.IO.Pipelines;
 using System.Linq;
 using System.Text;
 using BenchmarkDotNet.Attributes;
-using Microsoft.AspNetCore.Server.Kestrel.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Http;
-using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
 using Microsoft.AspNetCore.Testing;
-using MemoryPool = Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure.MemoryPool;
-using RequestLineStatus = Microsoft.AspNetCore.Server.Kestrel.Internal.Http.Frame.RequestLineStatus;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Performance
 {
@@ -52,8 +48,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         private static readonly byte[] _plaintextPipelinedRequests = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(plaintextRequest, Pipelining)));
         private static readonly byte[] _plaintextRequest = Encoding.ASCII.GetBytes(plaintextRequest);
 
-        private static readonly byte[] _liveaspnentPipelinedRequests = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(liveaspnetRequest, Pipelining)));
-        private static readonly byte[] _liveaspnentRequest = Encoding.ASCII.GetBytes(liveaspnetRequest);
+        private static readonly byte[] _liveaspnetPipelinedRequests = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(liveaspnetRequest, Pipelining)));
+        private static readonly byte[] _liveaspnetRequest = Encoding.ASCII.GetBytes(liveaspnetRequest);
 
         private static readonly byte[] _unicodePipelinedRequests = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(unicodeRequest, Pipelining)));
         private static readonly byte[] _unicodeRequest = Encoding.ASCII.GetBytes(unicodeRequest);
@@ -61,12 +57,29 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         [Params(typeof(KestrelHttpParser))]
         public Type ParserType { get; set; }
 
+        public IPipe Pipe { get; set; }
+
+        public Frame<object> Frame { get; set; }
+
+        public PipeFactory PipelineFactory { get; set; }
+
+        [Setup]
+        public void Setup()
+        {
+            var connectionContext = new MockConnection(new KestrelServerOptions());
+            connectionContext.ListenerContext.ServiceContext.HttpParserFactory = frame => (IHttpParser)Activator.CreateInstance(ParserType, frame.ConnectionContext.ListenerContext.ServiceContext.Log);
+
+            Frame = new Frame<object>(application: null, context: connectionContext);
+            PipelineFactory = new PipeFactory();
+            Pipe = PipelineFactory.Create();
+        }
+
         [Benchmark(Baseline = true, OperationsPerInvoke = InnerLoopCount)]
         public void ParsePlaintext()
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_plaintextRequest);
+                Pipe.InsertData(_plaintextRequest);
                 ParseData();
             }
         }
@@ -76,7 +89,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_plaintextPipelinedRequests);
+                Pipe.InsertData(_plaintextPipelinedRequests);
                 ParseData();
             }
         }
@@ -86,7 +99,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_liveaspnentRequest);
+                Pipe.InsertData(_liveaspnetRequest);
                 ParseData();
             }
         }
@@ -96,7 +109,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_liveaspnentPipelinedRequests);
+                Pipe.InsertData(_liveaspnetPipelinedRequests);
                 ParseData();
             }
         }
@@ -106,7 +119,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_unicodeRequest);
+                Pipe.InsertData(_unicodeRequest);
                 ParseData();
             }
         }
@@ -116,15 +129,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
         {
             for (var i = 0; i < InnerLoopCount; i++)
             {
-                InsertData(_unicodePipelinedRequests);
+                Pipe.InsertData(_unicodePipelinedRequests);
                 ParseData();
             }
-        }
-
-        private void InsertData(byte[] bytes)
-        {
-            // There should not be any backpressure and task completes immediately
-            Pipe.Writer.WriteAsync(bytes).GetAwaiter().GetResult();
         }
 
         private void ParseData()
@@ -147,7 +154,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
                 ReadCursor examined;
                 if (!Frame.TakeStartLine(readableBuffer, out consumed, out examined))
                 {
-                    ThrowInvalidStartLine();
+                    ThrowInvalidRequestLine();
                 }
                 Pipe.Reader.Advance(consumed, examined);
 
@@ -158,38 +165,21 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Performance
 
                 if (!Frame.TakeMessageHeaders(readableBuffer, (FrameRequestHeaders)Frame.RequestHeaders, out consumed, out examined))
                 {
-                    ThrowInvalidMessageHeaders();
+                    ThrowInvalidRequestHeaders();
                 }
                 Pipe.Reader.Advance(consumed, examined);
             }
             while (true);
         }
 
-        private void ThrowInvalidStartLine()
+        public static void ThrowInvalidRequestLine()
         {
-            throw new InvalidOperationException("Invalid StartLine");
+            throw new InvalidOperationException("Invalid request line");
         }
 
-        private void ThrowInvalidMessageHeaders()
+        public static void ThrowInvalidRequestHeaders()
         {
-            throw new InvalidOperationException("Invalid MessageHeaders");
+            throw new InvalidOperationException("Invalid request headers");
         }
-
-        [Setup]
-        public void Setup()
-        {
-            var connectionContext = new MockConnection(new KestrelServerOptions());
-            connectionContext.ListenerContext.ServiceContext.HttpParserFactory = frame => (IHttpParser)Activator.CreateInstance(ParserType, frame.ConnectionContext.ListenerContext.ServiceContext.Log);
-
-            Frame = new Frame<object>(application: null, context: connectionContext);
-            PipelineFactory = new PipeFactory();
-            Pipe = PipelineFactory.Create();
-        }
-
-        public IPipe Pipe { get; set; }
-
-        public Frame<object> Frame { get; set; }
-
-        public PipeFactory PipelineFactory { get; set; }
     }
 }
