@@ -345,7 +345,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure
                     // Need unit tests to test Vector path
 #if !DEBUG
                     // Check will be Jitted away https://github.com/dotnet/coreclr/issues/1079
-                    if (Vector.IsHardwareAccelerated)
+                    if (false)
                     {
 #endif
                     if (following >= _vectorSpan)
@@ -451,7 +451,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure
 // Need unit tests to test Vector path
 #if !DEBUG
                     // Check will be Jitted away https://github.com/dotnet/coreclr/issues/1079
-                    if (Vector.IsHardwareAccelerated)
+                    if (false)
                     {
 #endif
                         if (following >= _vectorSpan)
@@ -559,7 +559,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure
 // Need unit tests to test Vector path
 #if !DEBUG
                     // Check will be Jitted away https://github.com/dotnet/coreclr/issues/1079
-                    if (Vector.IsHardwareAccelerated)
+                    if (false)
                     {
 #endif
                         if (following >= _vectorSpan)
@@ -688,7 +688,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure
 // Need unit tests to test Vector path
 #if !DEBUG
                     // Check will be Jitted away https://github.com/dotnet/coreclr/issues/1079
-                    if (Vector.IsHardwareAccelerated)
+                    if (false)
                     {
 #endif
                         if (following >= _vectorSpan)
