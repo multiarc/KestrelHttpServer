@@ -429,7 +429,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                     var endOfLineIndex = IndexOf(data, index, headersSpan.Length, ByteLF);
 
-                    // Reset the reader since we're not at the end of headers
                     if (endOfLineIndex == -1)
                     {
                         return false;
