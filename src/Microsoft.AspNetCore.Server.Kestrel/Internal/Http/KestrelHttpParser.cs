@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Buffers;
 using System.IO.Pipelines;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
 using Microsoft.Extensions.Logging;
@@ -31,27 +32,46 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             consumed = buffer.Start;
             examined = buffer.End;
 
-            var start = buffer.Start;
-            if (ReadCursorOperations.Seek(start, buffer.End, out var end, ByteLF) == -1)
-            {
-                return false;
-            }
-
-            // Move 1 byte past the \n
-            end = buffer.Move(end, 1);
-            var startLineBuffer = buffer.Slice(start, end);
-
+            ReadCursor end;
             Span<byte> span;
-            if (startLineBuffer.IsSingleSpan)
+
+            // If the buffer is a single span then use it to find the LF
+            if (buffer.IsSingleSpan)
             {
-                // No copies, directly use the one and only span
-                span = startLineBuffer.First.Span;
+                var startLineSpan = buffer.First.Span;
+                var lineIndex = startLineSpan.IndexOfVectorized(ByteLF);
+
+                if (lineIndex == -1)
+                {
+                    return false;
+                }
+
+                end = buffer.Move(consumed, lineIndex + 1);
+                span = startLineSpan.Slice(0, lineIndex + 1);
             }
             else
             {
-                // We're not a single span here but we can use pooled arrays to avoid allocations in the rare case
-                span = new Span<byte>(new byte[startLineBuffer.Length]);
-                startLineBuffer.CopyTo(span);
+                var start = buffer.Start;
+                if (ReadCursorOperations.Seek(start, buffer.End, out end, ByteLF) == -1)
+                {
+                    return false;
+                }
+
+                // Move 1 byte past the \n
+                end = buffer.Move(end, 1);
+                var startLineBuffer = buffer.Slice(start, end);
+
+                if (startLineBuffer.IsSingleSpan)
+                {
+                    // No copies, directly use the one and only span
+                    span = startLineBuffer.First.Span;
+                }
+                else
+                {
+                    // We're not a single span here but we can use pooled arrays to avoid allocations in the rare case
+                    span = new Span<byte>(new byte[startLineBuffer.Length]);
+                    startLineBuffer.CopyTo(span);
+                }
             }
 
             var pathStart = -1;
